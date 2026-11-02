@@ -82,3 +82,13 @@ class TaskAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("title", response.data)
+
+
+class TaskDashboardTestCase(APITestCase):
+    def test_dashboard_is_available(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTemplateUsed(response, "tasks/dashboard.html")
+        self.assertContains(response, "tasks/dashboard.css")
+        self.assertContains(response, "tasks/dashboard.js")
