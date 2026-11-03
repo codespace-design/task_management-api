@@ -16,6 +16,7 @@ class UserManager(BaseUserManager):
             raise ValueError("A valid role is required.")
 
         email = self.normalize_email(email.strip()).lower()
+        extra_fields["phone"] = extra_fields.get("phone") or None
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -44,7 +45,7 @@ class User(AbstractUser):
 
     username = None
     email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=32, blank=True)
+    phone = models.CharField(max_length=32, blank=True, null=True, unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, db_index=True)
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -58,6 +59,8 @@ class User(AbstractUser):
     def clean(self):
         super().clean()
         self.email = self.email.strip().lower()
+        if self.phone is not None:
+            self.phone = self.phone.strip() or None
 
     def __str__(self):
         return self.email

@@ -1,6 +1,8 @@
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from apps.accounts.models import User
+
 from .models import Task
 
 
@@ -11,6 +13,36 @@ class TaskAPITestCase(APITestCase):
             description="Prepare the project overview for the sprint review.",
             completed=False,
         )
+        self.user = User.objects.create_user(
+            email="task-user@example.com",
+            password="A-strong-test-password-2026",
+            role=User.Role.CANDIDATE,
+        )
+        self.client.force_authenticate(self.user)
+
+    def test_task_list_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get("/api/tasks/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_jwt_token_can_access_task_list(self):
+        self.client.force_authenticate(user=None)
+        login = self.client.post(
+            "/api/auth/token/",
+            {
+                "email": self.user.email,
+                "password": "A-strong-test-password-2026",
+            },
+            format="json",
+        )
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+        response = self.client.get("/api/tasks/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["id"], self.task.id)
 
     def test_list_tasks(self):
         response = self.client.get("/api/tasks/")
@@ -92,3 +124,4 @@ class TaskDashboardTestCase(APITestCase):
         self.assertTemplateUsed(response, "tasks/dashboard.html")
         self.assertContains(response, "tasks/dashboard.css")
         self.assertContains(response, "tasks/dashboard.js")
+        self.assertContains(response, 'id="auth-form"')

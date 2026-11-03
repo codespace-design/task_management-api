@@ -38,6 +38,12 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A user with this email already exists.")
         return email
 
+    def validate_phone(self, value):
+        phone = value.strip()
+        if phone and User.objects.filter(phone=phone).exists():
+            raise serializers.ValidationError("A user with this phone already exists.")
+        return phone or None
+
     def validate(self, attrs):
         user = User(email=attrs["email"], phone=attrs.get("phone", ""))
         try:

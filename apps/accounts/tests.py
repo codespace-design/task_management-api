@@ -1,11 +1,9 @@
-from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import AccessToken
 
-from .models import CandidateProfile, EmployerProfile
-
-User = get_user_model()
+from .models import CandidateProfile, EmployerProfile, User
 
 
 class UserManagerTests(TestCase):
@@ -27,6 +25,21 @@ class UserManagerTests(TestCase):
                 email="person@example.com",
                 password="A-strong-test-password-2026",
             )
+
+    def test_create_user_allows_multiple_accounts_without_phone_numbers(self):
+        first = User.objects.create_user(
+            email="first@example.com",
+            password="A-strong-test-password-2026",
+            role=User.Role.CANDIDATE,
+        )
+        second = User.objects.create_user(
+            email="second@example.com",
+            password="A-strong-test-password-2026",
+            role=User.Role.EMPLOYER,
+        )
+
+        self.assertIsNone(first.phone)
+        self.assertIsNone(second.phone)
 
     def test_superuser_gets_admin_role(self):
         user = User.objects.create_superuser(
@@ -123,6 +136,28 @@ class RegistrationAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("email", response.data)
 
+    def test_registration_rejects_duplicate_phone(self):
+        User.objects.create_user(
+            email="existing@example.com",
+            password=self.password,
+            role=User.Role.CANDIDATE,
+            phone="+15550100",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "email": "new@example.com",
+                "phone": "+15550100",
+                "role": User.Role.CANDIDATE,
+                "password": self.password,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+
     def test_weak_password_is_rejected(self):
         response = self.client.post(
             self.url,
@@ -136,3 +171,106 @@ class RegistrationAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("password", response.data)
+
+
+class JWTAuthenticationTests(APITestCase):
+    token_url = "/api/auth/token/"
+    refresh_url = "/api/auth/token/refresh/"
+    logout_url = "/api/auth/logout/"
+    password = "A-strong-test-password-2026"
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="jwt-user@example.com",
+            password=self.password,
+            role=User.Role.EMPLOYER,
+        )
+
+    def obtain_tokens(self, email=None):
+        response = self.client.post(
+            self.token_url,
+            {"email": email or self.user.email, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.data
+
+    def test_login_returns_access_and_refresh_with_user_claims(self):
+        tokens = self.obtain_tokens()
+
+        self.assertIn("access", tokens)
+        self.assertIn("refresh", tokens)
+        access = AccessToken(tokens["access"])
+        self.assertEqual(access["email"], self.user.email)
+        self.assertEqual(access["role"], User.Role.EMPLOYER)
+
+    def test_login_rejects_invalid_credentials(self):
+        response = self.client.post(
+            self.token_url,
+            {"email": self.user.email, "password": "incorrect-password"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_refresh_rotates_and_blacklists_previous_refresh_token(self):
+        tokens = self.obtain_tokens()
+
+        response = self.client.post(
+            self.refresh_url,
+            {"refresh": tokens["refresh"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertNotEqual(response.data["refresh"], tokens["refresh"])
+        replay = self.client.post(
+            self.refresh_url,
+            {"refresh": tokens["refresh"]},
+            format="json",
+        )
+        self.assertEqual(replay.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_blacklists_the_users_refresh_token(self):
+        tokens = self.obtain_tokens()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        response = self.client.post(
+            self.logout_url,
+            {"refresh": tokens["refresh"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+        replay = self.client.post(
+            self.refresh_url,
+            {"refresh": tokens["refresh"]},
+            format="json",
+        )
+        self.assertEqual(replay.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_rejects_another_users_refresh_token(self):
+        tokens = self.obtain_tokens()
+        other_user = User.objects.create_user(
+            email="other@example.com",
+            password=self.password,
+            role=User.Role.CANDIDATE,
+        )
+        other_tokens = self.obtain_tokens(email=other_user.email)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        response = self.client.post(
+            self.logout_url,
+            {"refresh": other_tokens["refresh"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.client.credentials()
+        still_valid = self.client.post(
+            self.refresh_url,
+            {"refresh": other_tokens["refresh"]},
+            format="json",
+        )
+        self.assertEqual(still_valid.status_code, status.HTTP_200_OK)

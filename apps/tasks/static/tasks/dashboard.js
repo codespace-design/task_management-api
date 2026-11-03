@@ -12,9 +12,21 @@ const descriptionInput = document.querySelector("#task-description");
 const dialogTitle = document.querySelector("#dialog-title");
 const saveButton = document.querySelector("#save-task");
 const formError = document.querySelector("#form-error");
+const authPanel = document.querySelector("#auth-panel");
+const authForm = document.querySelector("#auth-form");
+const authError = document.querySelector("#auth-error");
+const authSubmit = document.querySelector("#auth-submit");
+const registrationFields = document.querySelector("#registration-fields");
+const authModeToggle = document.querySelector("#auth-mode-toggle");
+const dashboardContent = document.querySelector("#dashboard-content");
+const signOutButton = document.querySelector("#sign-out");
+const signedInUser = document.querySelector("#signed-in-user");
 
 let tasks = [];
 let editingTaskId = null;
+let accessToken = null;
+let refreshToken = null;
+let registering = false;
 
 const apiUrl = "/api/tasks/";
 
@@ -33,23 +45,139 @@ function setFormError(message) {
   formError.hidden = !message;
 }
 
-async function request(url, options = {}) {
-  const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options.headers },
-    ...options,
-  });
-  if (!response.ok) {
-    let message = `Request failed (${response.status}). Please try again.`;
-    try {
-      const body = await response.json();
-      const detail = body.detail || body.title?.[0] || body.non_field_errors?.[0];
-      if (detail) message = detail;
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) throw error;
-    }
-    throw new Error(message);
+async function responseError(response) {
+  let message = `Request failed (${response.status}). Please try again.`;
+  try {
+    const body = await response.json();
+    const firstError = Object.values(body).flat(Infinity).find((value) => typeof value === "string");
+    if (typeof body.detail === "string") message = body.detail;
+    else if (firstError) message = firstError;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
   }
-  return response.status === 204 ? null : response.json();
+  return new Error(message);
+}
+
+async function renewAccessToken() {
+  const response = await fetch("/api/auth/token/refresh/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: refreshToken }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const tokens = await response.json();
+  accessToken = tokens.access;
+  refreshToken = tokens.refresh ?? refreshToken;
+}
+
+function showAuth(message = "") {
+  accessToken = null;
+  refreshToken = null;
+  authForm.reset();
+  setAuthMode(false);
+  dashboardContent.hidden = true;
+  authPanel.hidden = false;
+  signedInUser.hidden = true;
+  signOutButton.hidden = true;
+  tasks = [];
+  taskList.replaceChildren();
+  authError.textContent = message;
+  authError.hidden = !message;
+}
+
+async function request(url, options = {}, canRetry = true) {
+  const headers = { "Content-Type": "application/json", ...options.headers };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401 && canRetry && accessToken && refreshToken) {
+    try {
+      await renewAccessToken();
+      return request(url, options, false);
+    } catch {
+      showAuth("Your session expired. Please sign in again.");
+      throw new Error("Your session expired. Please sign in again.");
+    }
+  }
+  if (!response.ok) {
+    throw await responseError(response);
+  }
+  return response.status === 204 || response.status === 205 ? null : response.json();
+}
+
+async function authenticate(email, password) {
+  const tokens = await request("/api/auth/token/", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  accessToken = tokens.access;
+  refreshToken = tokens.refresh;
+  authPanel.hidden = true;
+  dashboardContent.hidden = false;
+  signedInUser.textContent = email;
+  signedInUser.hidden = false;
+  signOutButton.hidden = false;
+  authForm.reset();
+  await loadTasks();
+}
+
+async function submitAuth(event) {
+  event.preventDefault();
+  authSubmit.disabled = true;
+  authError.hidden = true;
+  const email = document.querySelector("#auth-email").value.trim();
+  const password = document.querySelector("#auth-password").value;
+  try {
+    if (registering) {
+      await request("/api/auth/register/", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+          phone: document.querySelector("#auth-phone").value.trim(),
+          role: document.querySelector("#auth-role").value,
+        }),
+      });
+    }
+    await authenticate(email, password);
+  } catch (error) {
+    authError.textContent = error.message;
+    authError.hidden = false;
+  } finally {
+    authSubmit.disabled = false;
+  }
+}
+
+function setAuthMode(createAccount) {
+  registering = createAccount;
+  registrationFields.hidden = !createAccount;
+  document.querySelector("#auth-title").innerHTML = createAccount
+    ? 'Create your account<span class="heading-period">.</span>'
+    : 'Welcome back<span class="heading-period">.</span>';
+  document.querySelector("#auth-description").textContent = createAccount
+    ? "Join Daymark and start organizing your tasks."
+    : "Sign in to securely access your tasks.";
+  authSubmit.textContent = createAccount ? "Create account" : "Sign in";
+  authModeToggle.textContent = createAccount
+    ? "Already have an account? Sign in"
+    : "New here? Create an account";
+  document.querySelector("#auth-password").autocomplete = createAccount ? "new-password" : "current-password";
+  authError.hidden = true;
+}
+
+async function signOut() {
+  signOutButton.disabled = true;
+  try {
+    await renewAccessToken();
+    await request("/api/auth/logout/", {
+      method: "POST",
+      body: JSON.stringify({ refresh: refreshToken }),
+    });
+    showAuth();
+  } catch (error) {
+    showError(`Could not sign out cleanly. ${error.message}`);
+  } finally {
+    signOutButton.disabled = false;
+  }
 }
 
 function formatDate(value) {
@@ -274,4 +402,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && taskDialog.open) closeDialog();
 });
 
-loadTasks();
+authForm.addEventListener("submit", submitAuth);
+authModeToggle.addEventListener("click", () => setAuthMode(!registering));
+signOutButton.addEventListener("click", signOut);

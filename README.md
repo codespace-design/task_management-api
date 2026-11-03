@@ -8,6 +8,9 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 1. Create a virtual environment and activate it.
 2. Copy `.env.example` to `.env` for local development. It enables Django's
    development static-file server; keep `DEBUG=False` in production.
+   Generate a unique local signing key with
+   `python -c "import secrets; print(secrets.token_urlsafe(48))"` and replace
+   the example `SECRET_KEY` value.
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
@@ -25,6 +28,9 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 ## API endpoints
 
 - `POST /api/auth/register/` — register as an employer or candidate
+- `POST /api/auth/token/` — log in with email and password; receive access and refresh tokens
+- `POST /api/auth/token/refresh/` — rotate a refresh token and get a new access token
+- `POST /api/auth/logout/` — blacklist the authenticated user's refresh token
 - `GET /api/tasks/` — list all tasks
 - `POST /api/tasks/` — create a task
 - `GET /api/tasks/<id>/` — retrieve one task
@@ -33,21 +39,45 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 - `DELETE /api/tasks/<id>/` — delete a task
 
 Registration requires an email, password, and role (`employer` or `candidate`);
-phone is optional. Passwords are validated with Django's configured validators
-and stored as hashes. New users start unverified. Admin accounts must be created
-by staff using `python manage.py createsuperuser` or the Django admin; public
-registration cannot assign the admin role.
+phone is optional and unique when provided. Passwords are validated with Django's
+configured validators and stored as hashes. New users start unverified. Admin
+accounts must be created by staff using `python manage.py createsuperuser` or the
+Django admin; public registration cannot assign the admin role.
 
-The task endpoints remain open for this demonstration. Reusable role permissions
-are available in `apps.accounts.permissions` for views that need authorization.
+All task API endpoints require a JWT access token. Registration, login, and
+token refresh are public endpoints; logout requires authentication. Send the
+access token as `Authorization: Bearer <access-token>`. Access tokens expire
+after five minutes; refresh tokens expire after one day, rotate on use, and are
+blacklisted on logout. Store tokens securely in clients, never commit them, and
+use HTTPS outside local development. A logged-out access token remains usable
+until its short expiry; logout prevents further refreshes.
+Schedule `python manage.py flushexpiredtokens` regularly to remove expired
+blacklist records.
+
+For example, log in with `{"email":"person@example.com","password":"..."}` at
+`/api/auth/token/`, then send the returned access token as a Bearer token when
+calling `/api/tasks/`. Send the returned refresh token to
+`/api/auth/token/refresh/` before the access token expires. Logout requires both
+the current access token and its matching refresh token.
+
+The browser dashboard offers login and registration. Its tokens stay in memory
+for the current page session; signing in again is required after a reload.
+Reusable role permissions are available in `apps.accounts.permissions` for
+endpoints that need role-specific authorization.
+
+The sample task model does not yet assign tasks to individual users, so task
+records are shared among authenticated accounts and all roles can use task
+endpoints. Add task ownership and role-specific view permissions before using
+this API as a multi-tenant production service.
 
 This project uses a custom email-based user model (`AUTH_USER_MODEL` is
 `accounts.User`). Configure it before the first database migration in a new
 environment. Existing databases created with Django's default user model need a
 backed-up, planned data migration before switching to this model. For production,
-also configure secure secrets, email verification, authentication, and
-deployment-specific permissions.
+also configure secure secrets, email verification, and deployment-specific
+permissions.
 
 For production, set `DEBUG=False`, configure a secure `SECRET_KEY` and
 `ALLOWED_HOSTS`, and run `python manage.py collectstatic`. Serve the collected
-files from `STATIC_ROOT` using your deployment platform or web server.
+files from `STATIC_ROOT` using your deployment platform or web server. Configure
+HTTPS and a production-grade database and cache before deploying authentication.
