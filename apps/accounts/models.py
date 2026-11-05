@@ -4,6 +4,8 @@ from django.contrib.auth.models import AbstractUser
 from django.core.validators import MinValueValidator
 from django.db import models
 
+from .upload_validators import resume_upload_path, validate_resume_file
+
 
 class UserManager(BaseUserManager):
     use_in_migrations = True
@@ -82,6 +84,11 @@ class CandidateProfile(models.Model):
         null=True,
         blank=True,
         validators=[MinValueValidator(0)],
+    )
+    resume = models.FileField(
+        upload_to=resume_upload_path,
+        validators=[validate_resume_file],
+        blank=True,
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

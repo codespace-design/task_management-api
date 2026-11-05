@@ -1,6 +1,11 @@
-from django.test import TestCase
+import io
+import tempfile
+import zipfile
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
 from .models import CandidateProfile, EmployerProfile, User
@@ -418,5 +423,163 @@ class ProfileAPITests(APITestCase):
 
     def test_profile_endpoints_require_authentication(self):
         response = self.client.get("/api/profiles/candidate/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class ResumeUploadAPITests(APITestCase):
+    password = "A-strong-test-password-2026"
+
+    def setUp(self):
+        self.media_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.media_directory.cleanup)
+        self.media_settings = override_settings(MEDIA_ROOT=self.media_directory.name)
+        self.media_settings.enable()
+        self.addCleanup(self.media_settings.disable)
+
+        self.candidate = User.objects.create_user(
+            email="resume-candidate@example.com",
+            password=self.password,
+            role=User.Role.CANDIDATE,
+        )
+        self.other_candidate = User.objects.create_user(
+            email="resume-other@example.com",
+            password=self.password,
+            role=User.Role.CANDIDATE,
+        )
+        self.client.force_authenticate(self.candidate)
+        self.url = "/api/profiles/candidate/resume/"
+
+    def upload(
+        self,
+        name="resume.pdf",
+        content=b"%PDF-1.7\nsample",
+        content_type="application/pdf",
+    ):
+        return self.client.put(
+            self.url,
+            {
+                "resume": SimpleUploadedFile(
+                    name,
+                    content,
+                    content_type=content_type,
+                )
+            },
+            format="multipart",
+        )
+
+    def test_candidate_can_upload_and_download_pdf(self):
+        response = self.upload()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("/api/profiles/candidate/", response.data["download_url"])
+        self.candidate.candidate_profile.refresh_from_db()
+        self.assertTrue(self.candidate.candidate_profile.resume.name.endswith(".pdf"))
+        self.assertNotIn("resume.pdf", self.candidate.candidate_profile.resume.name)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-1.7\nsample")
+        self.assertEqual(response["X-Content-Type-Options"], "nosniff")
+        self.assertIn("attachment", response["Content-Disposition"])
+
+    def test_doc_and_docx_uploads_are_supported(self):
+        docx_content = io.BytesIO()
+        with zipfile.ZipFile(docx_content, "w") as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("word/document.xml", "<document/>")
+
+        doc_response = self.upload(
+            name="resume.doc",
+            content=bytes.fromhex("D0CF11E0A1B11AE1") + b"document",
+            content_type="application/msword",
+        )
+        docx_response = self.upload(
+            name="resume.docx",
+            content=docx_content.getvalue(),
+            content_type=(
+                "application/"
+                "vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+        )
+
+        self.assertEqual(doc_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(docx_response.status_code, status.HTTP_200_OK)
+        self.candidate.candidate_profile.refresh_from_db()
+        self.assertTrue(self.candidate.candidate_profile.resume.name.endswith(".docx"))
+
+    def test_replacement_deletes_previous_file(self):
+        self.upload()
+        self.candidate.candidate_profile.refresh_from_db()
+        old_name = self.candidate.candidate_profile.resume.name
+
+        response = self.upload(content=b"%PDF-1.7\nreplacement")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            self.candidate.candidate_profile.resume.storage.exists(old_name)
+        )
+        self.candidate.candidate_profile.refresh_from_db()
+        self.assertTrue(
+            self.candidate.candidate_profile.resume.storage.exists(
+                self.candidate.candidate_profile.resume.name
+            )
+        )
+
+    def test_invalid_extension_and_content_are_rejected(self):
+        self.upload()
+        self.candidate.candidate_profile.refresh_from_db()
+        original_name = self.candidate.candidate_profile.resume.name
+
+        invalid_extension = self.upload(name="resume.txt", content=b"%PDF-1.7\nsample")
+        invalid_content = self.upload(name="resume.pdf", content=b"not a pdf")
+
+        self.assertEqual(invalid_extension.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(invalid_content.status_code, status.HTTP_400_BAD_REQUEST)
+        self.candidate.candidate_profile.refresh_from_db()
+        self.assertEqual(self.candidate.candidate_profile.resume.name, original_name)
+        self.assertTrue(
+            self.candidate.candidate_profile.resume.storage.exists(original_name)
+        )
+
+    def test_upload_over_size_limit_is_rejected(self):
+        response = self.upload(content=b"%PDF-" + b"x" * (5 * 1024 * 1024))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("resume", response.data)
+
+    def test_other_candidate_cannot_download_or_replace_resume(self):
+        self.client.force_authenticate(self.other_candidate)
+
+        download = self.client.get(
+            f"/api/profiles/candidate/{self.candidate.pk}/resume/"
+        )
+        upload = self.client.put(
+            f"/api/profiles/candidate/{self.candidate.pk}/resume/",
+            {
+                "resume": SimpleUploadedFile(
+                    "resume.pdf",
+                    b"%PDF-1.7\nmalicious",
+                    content_type="application/pdf",
+                )
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(download.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(upload.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_candidate_can_remove_resume_without_deleting_profile(self):
+        self.upload()
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.candidate.candidate_profile.refresh_from_db()
+        self.assertFalse(self.candidate.candidate_profile.resume)
+        self.assertTrue(self.candidate.candidate_profile.is_active)
+
+    def test_upload_requires_authentication(self):
+        response = APIClient().get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

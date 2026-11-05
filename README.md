@@ -40,6 +40,10 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 - `PUT/PATCH /api/profiles/employer/` — update your employer profile
 - `DELETE /api/profiles/employer/` — soft-delete your employer profile
 - `/api/profiles/candidate/<user_id>/` and `/api/profiles/employer/<user_id>/` — admin access by user ID
+- `POST/PUT /api/profiles/candidate/resume/` — upload or replace your resume
+- `GET /api/profiles/candidate/resume/` — download your resume
+- `DELETE /api/profiles/candidate/resume/` — remove your resume without deleting your profile
+- `/api/profiles/candidate/<user_id>/resume/` — admin access to a candidate's resume
 - `GET /api/tasks/` — list tasks (any authenticated role)
 - `POST /api/tasks/` — create a task (employer or admin)
 - `GET /api/tasks/<id>/` — retrieve one task (any authenticated role)
@@ -79,6 +83,18 @@ return 404 until reactivated. Admins can view and update candidate or employer
 profiles by the associated user's ID. Only admins can change an employer's
 verification status. Profile endpoints require an authenticated user with the
 corresponding role, or an admin.
+
+Resume files are uploaded as `multipart/form-data` in the `resume` field. PDF,
+DOC, and DOCX files up to 5 MB are supported; extension, supplied MIME
+type, and basic file signatures/container structure are validated. Files are
+stored under `MEDIA_ROOT` with a generated name, and a successful replacement
+removes the previous stored file. Resume downloads go through the authenticated
+API and are sent as attachments; the API does not expose a public media URL.
+`MEDIA_ROOT` and `MEDIA_URL` configure local development storage. Production
+deployments should use private object storage or ensure the media directory is
+not publicly served, and should add malware scanning before documents are used
+or distributed. Signature checks do not detect malware or guarantee a document
+is safe to open.
 
 The browser dashboard offers login and registration. Its tokens stay in memory
 for the current page session; signing in again is required after a reload.
