@@ -31,12 +31,12 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 - `POST /api/auth/token/` — log in with email and password; receive access and refresh tokens
 - `POST /api/auth/token/refresh/` — rotate a refresh token and get a new access token
 - `POST /api/auth/logout/` — blacklist the authenticated user's refresh token
-- `GET /api/tasks/` — list all tasks
-- `POST /api/tasks/` — create a task
-- `GET /api/tasks/<id>/` — retrieve one task
-- `PUT /api/tasks/<id>/` — replace a task
-- `PATCH /api/tasks/<id>/` — partially update a task
-- `DELETE /api/tasks/<id>/` — delete a task
+- `GET /api/tasks/` — list tasks (any authenticated role)
+- `POST /api/tasks/` — create a task (employer or admin)
+- `GET /api/tasks/<id>/` — retrieve one task (any authenticated role)
+- `PUT /api/tasks/<id>/` — replace a task (employer or admin)
+- `PATCH /api/tasks/<id>/` — partially update a task (employer or admin)
+- `DELETE /api/tasks/<id>/` — delete a task (employer or admin)
 
 Registration requires an email, password, and role (`employer` or `candidate`);
 phone is optional and unique when provided. Passwords are validated with Django's
@@ -44,7 +44,8 @@ configured validators and stored as hashes. New users start unverified. Admin
 accounts must be created by staff using `python manage.py createsuperuser` or the
 Django admin; public registration cannot assign the admin role.
 
-All task API endpoints require a JWT access token. Registration, login, and
+All task API endpoints require a JWT access token. Candidates can read tasks;
+employers and admins can read and modify them. Registration, login, and
 token refresh are public endpoints; logout requires authentication. Send the
 access token as `Authorization: Bearer <access-token>`. Access tokens expire
 after five minutes; refresh tokens expire after one day, rotate on use, and are
@@ -62,13 +63,15 @@ the current access token and its matching refresh token.
 
 The browser dashboard offers login and registration. Its tokens stay in memory
 for the current page session; signing in again is required after a reload.
-Reusable role permissions are available in `apps.accounts.permissions` for
-endpoints that need role-specific authorization.
+Reusable `IsAdmin`, `IsEmployer`, `IsCandidate`, and `IsEmployerOrAdmin`
+permissions are available in `apps.accounts.permissions`. Role checks are
+applied as Django REST Framework permissions so they run after JWT
+authentication. The task API has no job-posting or application models/endpoints;
+those domain features are not represented by this task-management API.
 
-The sample task model does not yet assign tasks to individual users, so task
-records are shared among authenticated accounts and all roles can use task
-endpoints. Add task ownership and role-specific view permissions before using
-this API as a multi-tenant production service.
+The sample task model does not assign tasks to individual users, so task records
+are shared among authenticated accounts. Add task ownership and queryset
+scoping before using this API as a multi-tenant production service.
 
 This project uses a custom email-based user model (`AUTH_USER_MODEL` is
 `accounts.User`). Configure it before the first database migration in a new

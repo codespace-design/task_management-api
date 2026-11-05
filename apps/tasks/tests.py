@@ -51,6 +51,7 @@ class TaskAPITestCase(APITestCase):
         self.assertEqual(response.data[0]["title"], self.task.title)
 
     def test_create_task(self):
+        self.authenticate_as(User.Role.EMPLOYER)
         payload = {
             "title": "Review pull requests",
             "description": "Check pending review items.",
@@ -69,6 +70,7 @@ class TaskAPITestCase(APITestCase):
         self.assertEqual(response.data["id"], self.task.pk)
 
     def test_update_task(self):
+        self.authenticate_as(User.Role.EMPLOYER)
         payload = {
             "title": "Updated task title",
             "description": "Updated description",
@@ -87,6 +89,7 @@ class TaskAPITestCase(APITestCase):
         self.assertTrue(self.task.completed)
 
     def test_partial_update_task(self):
+        self.authenticate_as(User.Role.EMPLOYER)
         payload = {"completed": True}
 
         response = self.client.patch(
@@ -100,12 +103,48 @@ class TaskAPITestCase(APITestCase):
         self.assertTrue(self.task.completed)
 
     def test_delete_task(self):
+        self.authenticate_as(User.Role.EMPLOYER)
         response = self.client.delete(f"/api/tasks/{self.task.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(Task.objects.count(), 0)
 
+    def test_candidate_cannot_create_or_modify_tasks(self):
+        self.authenticate_as(User.Role.CANDIDATE)
+        url = f"/api/tasks/{self.task.pk}/"
+
+        responses = (
+            self.client.post(
+                "/api/tasks/",
+                {"title": "Candidate task"},
+                format="json",
+            ),
+            self.client.put(
+                url,
+                {"title": "Changed task", "description": "", "completed": True},
+                format="json",
+            ),
+            self.client.patch(url, {"completed": True}, format="json"),
+            self.client.delete(url),
+        )
+
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Task.objects.count(), 1)
+
+    def test_admin_can_create_tasks(self):
+        self.authenticate_as(User.Role.ADMIN)
+        response = self.client.post(
+            "/api/tasks/",
+            {"title": "Admin task"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Task.objects.count(), 2)
+
     def test_blank_title_rejected(self):
+        self.authenticate_as(User.Role.EMPLOYER)
         response = self.client.post(
             "/api/tasks/",
             {"title": "   ", "description": "x"},
@@ -114,6 +153,14 @@ class TaskAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("title", response.data)
+
+    def authenticate_as(self, role):
+        user = User.objects.create_user(
+            email=f"{role}-user@example.com",
+            password="A-strong-test-password-2026",
+            role=role,
+        )
+        self.client.force_authenticate(user)
 
 
 class TaskDashboardTestCase(APITestCase):

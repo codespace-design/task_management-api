@@ -4,23 +4,31 @@ from .models import User
 
 
 class RolePermission(BasePermission):
-    role = None
+    roles = ()
 
     def has_permission(self, request, view):
         return bool(
             request.user
             and request.user.is_authenticated
-            and request.user.role == self.role
+            and request.user.role in self.roles
         )
 
 
-class IsAdminRole(RolePermission):
-    role = User.Role.ADMIN
+class IsAdmin(RolePermission):
+    roles = (User.Role.ADMIN,)
+
+
+class IsAdminRole(IsAdmin):
+    """Backward-compatible name for the admin role permission."""
 
 
 class IsEmployer(RolePermission):
-    role = User.Role.EMPLOYER
+    roles = (User.Role.EMPLOYER,)
 
 
 class IsCandidate(RolePermission):
-    role = User.Role.CANDIDATE
+    roles = (User.Role.CANDIDATE,)
+
+
+class IsEmployerOrAdmin(RolePermission):
+    roles = (User.Role.EMPLOYER, User.Role.ADMIN)
