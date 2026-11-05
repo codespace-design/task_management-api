@@ -31,6 +31,15 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 - `POST /api/auth/token/` — log in with email and password; receive access and refresh tokens
 - `POST /api/auth/token/refresh/` — rotate a refresh token and get a new access token
 - `POST /api/auth/logout/` — blacklist the authenticated user's refresh token
+- `GET /api/profiles/candidate/` — view your candidate profile
+- `POST /api/profiles/candidate/` — initialize or reactivate your candidate profile
+- `PUT/PATCH /api/profiles/candidate/` — update your candidate profile
+- `DELETE /api/profiles/candidate/` — soft-delete your candidate profile
+- `GET /api/profiles/employer/` — view your employer profile
+- `POST /api/profiles/employer/` — initialize or reactivate your employer profile
+- `PUT/PATCH /api/profiles/employer/` — update your employer profile
+- `DELETE /api/profiles/employer/` — soft-delete your employer profile
+- `/api/profiles/candidate/<user_id>/` and `/api/profiles/employer/<user_id>/` — admin access by user ID
 - `GET /api/tasks/` — list tasks (any authenticated role)
 - `POST /api/tasks/` — create a task (employer or admin)
 - `GET /api/tasks/<id>/` — retrieve one task (any authenticated role)
@@ -60,6 +69,16 @@ For example, log in with `{"email":"person@example.com","password":"..."}` at
 calling `/api/tasks/`. Send the returned refresh token to
 `/api/auth/token/refresh/` before the access token expires. Logout requires both
 the current access token and its matching refresh token.
+
+Candidate profiles contain skills, education, experience, and expected salary.
+Employer profiles contain company name, website URL, company size, and a
+verification status. Profiles are initialized when an account is registered.
+Profile endpoints let the owner initialize/update or reactivate their profile;
+deletion marks it inactive rather than removing its data. Inactive profiles
+return 404 until reactivated. Admins can view and update candidate or employer
+profiles by the associated user's ID. Only admins can change an employer's
+verification status. Profile endpoints require an authenticated user with the
+corresponding role, or an admin.
 
 The browser dashboard offers login and registration. Its tokens stay in memory
 for the current page session; signing in again is required after a reload.

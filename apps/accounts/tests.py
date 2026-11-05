@@ -274,3 +274,149 @@ class JWTAuthenticationTests(APITestCase):
             format="json",
         )
         self.assertEqual(still_valid.status_code, status.HTTP_200_OK)
+
+
+class ProfileAPITests(APITestCase):
+    password = "A-strong-test-password-2026"
+
+    def setUp(self):
+        self.candidate = User.objects.create_user(
+            email="profile-candidate@example.com",
+            password=self.password,
+            role=User.Role.CANDIDATE,
+        )
+        self.other_candidate = User.objects.create_user(
+            email="other-candidate@example.com",
+            password=self.password,
+            role=User.Role.CANDIDATE,
+        )
+        self.employer = User.objects.create_user(
+            email="profile-employer@example.com",
+            password=self.password,
+            role=User.Role.EMPLOYER,
+        )
+        self.admin = User.objects.create_superuser(
+            email="profile-admin@example.com",
+            password=self.password,
+        )
+
+    def test_candidate_can_create_and_update_own_profile(self):
+        self.client.force_authenticate(self.candidate)
+        response = self.client.post(
+            "/api/profiles/candidate/",
+            {
+                "skills": [" Python ", "Django", "Python"],
+                "education": "Computer Science",
+                "experience": "Backend developer",
+                "expected_salary": "85000.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["skills"], ["Python", "Django"])
+        self.assertEqual(response.data["expected_salary"], "85000.00")
+
+        response = self.client.patch(
+            "/api/profiles/candidate/",
+            {"expected_salary": "90000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["expected_salary"], "90000.00")
+
+    def test_candidate_cannot_access_another_users_profile(self):
+        self.client.force_authenticate(self.candidate)
+        response = self.client.get(
+            f"/api/profiles/candidate/{self.other_candidate.pk}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_candidate_cannot_access_employer_profile_api(self):
+        self.client.force_authenticate(self.candidate)
+        response = self.client.get("/api/profiles/employer/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_candidate_profile_can_be_soft_deleted_and_reactivated(self):
+        self.client.force_authenticate(self.candidate)
+        response = self.client.delete("/api/profiles/candidate/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.candidate.candidate_profile.refresh_from_db()
+        self.assertFalse(self.candidate.candidate_profile.is_active)
+        self.assertEqual(
+            self.client.get("/api/profiles/candidate/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        response = self.client.post(
+            "/api/profiles/candidate/",
+            {"skills": ["Python"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["is_active"])
+
+    def test_candidate_profile_validates_skills_and_salary(self):
+        self.client.force_authenticate(self.candidate)
+        invalid_skills = self.client.patch(
+            "/api/profiles/candidate/",
+            {"skills": ["Python", ""]},
+            format="json",
+        )
+        invalid_salary = self.client.patch(
+            "/api/profiles/candidate/",
+            {"expected_salary": "-1"},
+            format="json",
+        )
+
+        self.assertEqual(invalid_skills.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("skills", invalid_skills.data)
+        self.assertEqual(invalid_salary.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("expected_salary", invalid_salary.data)
+
+    def test_employer_profile_fields_and_verification_protection(self):
+        self.client.force_authenticate(self.employer)
+        invalid_response = self.client.post(
+            "/api/profiles/employer/",
+            {},
+            format="json",
+        )
+        self.assertEqual(
+            invalid_response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        response = self.client.post(
+            "/api/profiles/employer/",
+            {
+                "company_name": "Example Inc",
+                "domain": "https://example.com",
+                "company_size": EmployerProfile.CompanySize.SIZE_11_50,
+                "is_verified": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["is_verified"])
+        self.assertEqual(response.data["company_name"], "Example Inc")
+
+    def test_admin_can_view_and_verify_any_employer_profile(self):
+        self.client.force_authenticate(self.admin)
+        url = f"/api/profiles/employer/{self.employer.pk}/"
+        self.client.patch(url, {"company_name": "Example Inc"}, format="json")
+
+        response = self.client.patch(url, {"is_verified": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["is_verified"])
+
+    def test_profile_endpoints_require_authentication(self):
+        response = self.client.get("/api/profiles/candidate/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
