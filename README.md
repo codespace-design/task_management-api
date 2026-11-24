@@ -50,6 +50,12 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 - `GET /api/profiles/candidate/resume/` — download your resume
 - `DELETE /api/profiles/candidate/resume/` — remove your resume without deleting your profile
 - `/api/profiles/candidate/<user_id>/resume/` — admin access to a candidate's resume
+- `GET /api/jobs/` — list jobs visible to the authenticated role
+- `POST /api/jobs/` — create a job as an employer
+- `GET /api/jobs/<id>/` — retrieve an accessible job
+- `PUT/PATCH /api/jobs/<id>/` — edit a job you own as an employer
+- `POST /api/jobs/<id>/activate/` — activate a job you own
+- `POST /api/jobs/<id>/deactivate/` — deactivate a job you own
 - `GET /api/tasks/` — search, filter, and paginate tasks (any authenticated role)
 - `POST /api/tasks/` — create a task (employer or admin)
 - `GET /api/tasks/<id>/` — retrieve one task (any authenticated role)
@@ -74,6 +80,13 @@ use HTTPS outside local development. A logged-out access token remains usable
 until its short expiry; logout prevents further refreshes.
 Schedule `python manage.py flushexpiredtokens` regularly to remove expired
 blacklist records.
+
+Job APIs also require authentication. Employers can create and manage only
+their own jobs; candidates can read active jobs, and employers can read all
+their own jobs. Administrators can read all jobs but cannot create or modify
+them through this API. New jobs start in `draft` status. Use the activate and
+deactivate actions to publish or hide a job; status and employer ownership are
+server-controlled.
 
 The task list uses page-number pagination and returns `count`, `next`,
 `previous`, and `results`. Use `page` to select a page; page size defaults to
