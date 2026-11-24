@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tasks"
+method: GET
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Unauthenticated request is rejected (401)', function () { pm.response.to.have.status(401); });
+      pm.test('Unauthorized response uses standard envelope', function () { const body = pm.response.json(); pm.expect(body.success).to.eql(false); pm.expect(body.status_code).to.eql(401); });
+    language: text/javascript
+order: 9000

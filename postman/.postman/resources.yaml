@@ -1,0 +1,10 @@
+# Use this workspace to collaborate
+workspace:
+  id: cf08c47b-2074-4fbb-bc58-0ca31f9ee378
+
+localResources:
+  collections:
+    - ../Task Management API
+  environments:
+    - ../Task Management API.postman_environment.json
+    - ../Task Management API - Local.environment.yaml

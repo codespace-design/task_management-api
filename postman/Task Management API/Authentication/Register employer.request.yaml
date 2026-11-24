@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{baseUrl}}/api/auth/register/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "email": "{{employerEmail}}",
+      "password": "{{password}}",
+      "role": "employer"
+    }
+auth:
+  type: noauth
+scripts:
+  - type: beforeRequest
+    code: pm.environment.set('employerEmail', 'postman-employer-' + Date.now() + '@example.test');
+    language: text/javascript
+  - type: afterResponse
+    code: |-
+      pm.test('Employer registered (201)', function () { pm.response.to.have.status(201); });
+      pm.test('Password is not returned', function () { pm.expect(pm.response.json()).not.to.have.property('password'); });
+    language: text/javascript
+order: 1000

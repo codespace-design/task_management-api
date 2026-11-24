@@ -91,19 +91,19 @@
 
           <section class="stats-grid" aria-label="Task summary">
             <article class="stat-card">
-              <div class="stat-topline"><span class="stat-icon all-icon" aria-hidden="true">◷</span><span class="stat-label">TOTAL TASKS</span></div>
+              <div class="stat-topline"><span class="stat-icon all-icon" aria-hidden="true">◷</span><span class="stat-label">MATCHING TASKS</span></div>
               <div class="stat-value" id="total-count">—</div>
-              <div class="stat-foot">Everything on your list</div>
+              <div class="stat-foot">Across all pages</div>
             </article>
             <article class="stat-card">
-              <div class="stat-topline"><span class="stat-icon active-icon" aria-hidden="true">↗</span><span class="stat-label">IN PROGRESS</span></div>
+              <div class="stat-topline"><span class="stat-icon active-icon" aria-hidden="true">↗</span><span class="stat-label">ACTIVE THIS PAGE</span></div>
               <div class="stat-value" id="active-count">—</div>
-              <div class="stat-foot">One step at a time</div>
+              <div class="stat-foot">Current page</div>
             </article>
             <article class="stat-card">
-              <div class="stat-topline"><span class="stat-icon done-icon" aria-hidden="true">✓</span><span class="stat-label">COMPLETED</span></div>
+              <div class="stat-topline"><span class="stat-icon done-icon" aria-hidden="true">✓</span><span class="stat-label">COMPLETED THIS PAGE</span></div>
               <div class="stat-value" id="completed-count">—</div>
-              <div class="stat-foot">Look how far you’ve come</div>
+              <div class="stat-foot">Current page</div>
             </article>
           </section>
 
@@ -130,6 +130,11 @@
             </div>
 
             <div id="task-list" class="task-list" aria-live="polite" aria-busy="true"></div>
+            <nav class="task-pagination" aria-label="Task pages">
+              <button id="previous-page" type="button" disabled>Previous</button>
+              <span id="pagination-status" aria-live="polite">Page 1</span>
+              <button id="next-page" type="button" disabled>Next</button>
+            </nav>
             <div id="empty-state" class="empty-state" hidden>
               <div class="empty-art" aria-hidden="true"><span>✓</span></div>
               <h3 id="empty-title">Your list is a blank canvas</h3>

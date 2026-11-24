@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tasks"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Task list succeeds (200)', function () { pm.response.to.have.status(200); });
+      pm.test('Task list is a paginated response', function () {
+        const body = pm.response.json();
+        pm.expect(body).to.have.property('count');
+        pm.expect(body.results).to.be.an('array');
+      });
+    language: text/javascript
+order: 1000

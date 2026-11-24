@@ -1,0 +1,8 @@
+$kind: collection
+description: End-to-end auth, task, profile, validation, and role-access checks. Run requests in collection order against a migrated local API.
+auth:
+  - id: 9cfbd79a-41e4-429a-9bdd-c5172a219d75
+    type: bearer
+    name: bearer auth
+    credentials:
+      token: "{{employerAccessToken}}"

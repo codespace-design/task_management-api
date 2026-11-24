@@ -1,0 +1,21 @@
+$kind: http-request
+url: "{{baseUrl}}/api/auth/token"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "email": "{{candidateEmail}}",
+      "password": "{{password}}"
+    }
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Candidate login succeeds (200)', function () { pm.response.to.have.status(200); });
+      pm.environment.set('candidateAccessToken', pm.response.json().access);
+    language: text/javascript
+order: 4000

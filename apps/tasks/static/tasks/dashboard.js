@@ -21,12 +21,20 @@ const authModeToggle = document.querySelector("#auth-mode-toggle");
 const dashboardContent = document.querySelector("#dashboard-content");
 const signOutButton = document.querySelector("#sign-out");
 const signedInUser = document.querySelector("#signed-in-user");
+const previousPageButton = document.querySelector("#previous-page");
+const nextPageButton = document.querySelector("#next-page");
+const paginationStatus = document.querySelector("#pagination-status");
 
 let tasks = [];
+let taskCount = 0;
+let currentPage = 1;
+let hasPreviousPage = false;
+let hasNextPage = false;
 let editingTaskId = null;
 let accessToken = null;
 let refreshToken = null;
 let registering = false;
+let searchTimeout = null;
 
 const apiUrl = "/api/tasks/";
 
@@ -250,7 +258,7 @@ function createTaskCard(task) {
 
 function updateStats() {
   const completed = tasks.filter((task) => task.completed).length;
-  document.querySelector("#total-count").textContent = tasks.length;
+  document.querySelector("#total-count").textContent = taskCount;
   document.querySelector("#active-count").textContent = tasks.length - completed;
   document.querySelector("#completed-count").textContent = completed;
 }
@@ -258,16 +266,16 @@ function updateStats() {
 function renderTasks() {
   const query = searchInput.value.trim().toLocaleLowerCase();
   const filter = filterSelect.value;
-  const visibleTasks = tasks.filter((task) => {
-    const matchesText = `${task.title} ${task.description}`.toLocaleLowerCase().includes(query);
-    const matchesFilter = filter === "all" || (filter === "completed" ? task.completed : !task.completed);
-    return matchesText && matchesFilter;
-  });
-
-  taskList.replaceChildren(...visibleTasks.map(createTaskCard));
-  document.querySelector("#visible-count").textContent = visibleTasks.length;
-  emptyState.hidden = visibleTasks.length > 0;
-  if (tasks.length === 0) {
+  taskList.replaceChildren(...tasks.map(createTaskCard));
+  document.querySelector("#visible-count").textContent = tasks.length;
+  emptyState.hidden = tasks.length > 0;
+  previousPageButton.disabled = !hasPreviousPage;
+  nextPageButton.disabled = !hasNextPage;
+  paginationStatus.textContent = `Page ${currentPage} · ${taskCount} matching tasks`;
+  if (taskCount === 0 && (query || filter !== "all")) {
+    emptyTitle.textContent = "No tasks match this view";
+    emptyDescription.textContent = "Try another search or choose a different filter.";
+  } else if (taskCount === 0) {
     emptyTitle.textContent = "Your list is a blank canvas";
     emptyDescription.textContent = "Add a task and make today count.";
   } else {
@@ -278,11 +286,24 @@ function renderTasks() {
   }
 }
 
-async function loadTasks() {
+async function loadTasks(page = 1) {
   taskList.setAttribute("aria-busy", "true");
   clearError();
   try {
-    tasks = await request(apiUrl);
+    const params = new URLSearchParams({ page: String(page) });
+    const query = searchInput.value.trim();
+    const filter = filterSelect.value;
+    if (query) params.set("search", query);
+    if (filter !== "all") {
+      params.set("status", filter === "completed" ? "completed" : "pending");
+    }
+
+    const result = await request(`${apiUrl}?${params}`);
+    tasks = result.results;
+    taskCount = result.count;
+    currentPage = page;
+    hasPreviousPage = Boolean(result.previous);
+    hasNextPage = Boolean(result.next);
     updateStats();
     renderTasks();
   } catch (error) {
@@ -329,7 +350,7 @@ async function saveTask(event) {
       body: JSON.stringify(payload),
     });
     closeDialog();
-    await loadTasks();
+    await loadTasks(1);
   } catch (error) {
     setFormError(error.message);
   } finally {
@@ -353,10 +374,10 @@ async function handleTaskAction(event) {
     button.disabled = true;
     try {
       await request(`${apiUrl}${task.id}/`, { method: "DELETE" });
-      tasks = tasks.filter((item) => item.id !== task.id);
-      updateStats();
-      renderTasks();
-      clearError();
+      const page = tasks.length === 1 && currentPage > 1
+        ? currentPage - 1
+        : currentPage;
+      await loadTasks(page);
     } catch (error) {
       showError(`Could not delete the task. ${error.message}`);
       button.disabled = false;
@@ -366,14 +387,11 @@ async function handleTaskAction(event) {
   if (button.dataset.action === "toggle") {
     button.disabled = true;
     try {
-      const updatedTask = await request(`${apiUrl}${task.id}/`, {
+      await request(`${apiUrl}${task.id}/`, {
         method: "PATCH",
         body: JSON.stringify({ completed: !task.completed }),
       });
-      tasks = tasks.map((item) => item.id === updatedTask.id ? updatedTask : item);
-      updateStats();
-      renderTasks();
-      clearError();
+      await loadTasks(1);
     } catch (error) {
       showError(`Could not update the task. ${error.message}`);
       button.disabled = false;
@@ -392,8 +410,17 @@ document.querySelector("#close-dialog").addEventListener("click", closeDialog);
 document.querySelector("#cancel-dialog").addEventListener("click", closeDialog);
 taskForm.addEventListener("submit", saveTask);
 taskList.addEventListener("click", handleTaskAction);
-searchInput.addEventListener("input", renderTasks);
-filterSelect.addEventListener("change", renderTasks);
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => loadTasks(1), 250);
+});
+filterSelect.addEventListener("change", () => loadTasks(1));
+previousPageButton.addEventListener("click", () => {
+  if (hasPreviousPage) loadTasks(currentPage - 1);
+});
+nextPageButton.addEventListener("click", () => {
+  if (hasNextPage) loadTasks(currentPage + 1);
+});
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !taskDialog.open && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
     event.preventDefault();

@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{baseUrl}}/api/auth/token/refresh"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "refresh": "{{employerRefreshToken}}"
+    }
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Logged-out refresh token is rejected (401)', function () { pm.response.to.have.status(401); });
+      pm.test('Refresh failure uses standard error envelope', function () { const body = pm.response.json(); pm.expect(body.success).to.eql(false); pm.expect(body.status_code).to.eql(401); });
+    language: text/javascript
+order: 7000

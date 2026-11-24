@@ -4,6 +4,12 @@ from .models import Task
 
 
 class TaskSerializer(serializers.ModelSerializer):
+    created_by_role = serializers.CharField(
+        source="created_by.role",
+        read_only=True,
+        allow_null=True,
+    )
+
     class Meta:
         model = Task
         fields = [
@@ -11,6 +17,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "title",
             "description",
             "completed",
+            "created_by_role",
             "created_at",
             "updated_at",
         ]

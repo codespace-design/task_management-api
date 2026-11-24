@@ -1,0 +1,21 @@
+$kind: http-request
+url: "{{baseUrl}}/api/profiles/employer"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "company_name": "Postman Example Company",
+      "domain": "https://example.test",
+      "company_size": "1-10",
+      "is_verified": true
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Employer profile update succeeds (200)', function () { pm.response.to.have.status(200); });
+      pm.test('Self-service cannot verify employer', function () { pm.expect(pm.response.json().is_verified).to.eql(false); });
+    language: text/javascript
+order: 2000

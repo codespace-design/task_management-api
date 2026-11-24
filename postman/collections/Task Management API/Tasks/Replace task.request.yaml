@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tasks/{{taskId}}"
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "title": "Postman API validation task updated",
+      "description": "Replaced by the Day 13 collection.",
+      "completed": false
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('Task replacement succeeds (200)', function () { pm.response.to.have.status(200); });
+    language: text/javascript
+order: 4000

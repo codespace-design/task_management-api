@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tasks/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "title": "Postman API validation task",
+      "description": "Created by the Day 13 collection.",
+      "completed": false
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Task is created (201)', function () { pm.response.to.have.status(201); });
+      pm.environment.set('taskId', pm.response.json().id);
+    language: text/javascript
+order: 2000

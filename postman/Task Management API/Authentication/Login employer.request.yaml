@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{baseUrl}}/api/auth/token/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "email": "{{employerEmail}}",
+      "password": "{{password}}"
+    }
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Login succeeds (200)', function () { pm.response.to.have.status(200); });
+      const tokens = pm.response.json();
+      pm.environment.set('employerAccessToken', tokens.access);
+      pm.environment.set('employerRefreshToken', tokens.refresh);
+      pm.test('Access and refresh tokens are returned', function () { pm.expect(tokens.access).to.be.a('string'); pm.expect(tokens.refresh).to.be.a('string'); });
+    language: text/javascript
+order: 2000

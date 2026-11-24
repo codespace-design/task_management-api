@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tasks/{{taskId}}"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "completed": true
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('Task partial update succeeds (200)', function () { pm.response.to.have.status(200); });
+    language: text/javascript
+order: 5000

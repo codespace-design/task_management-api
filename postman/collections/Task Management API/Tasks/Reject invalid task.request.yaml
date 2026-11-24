@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{baseUrl}}/api/tasks"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "title": "   "
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Invalid task is rejected (400)', function () { pm.response.to.have.status(400); });
+      pm.test('Validation error uses standard envelope', function () { const body = pm.response.json(); pm.expect(body.success).to.eql(false); pm.expect(body.status_code).to.eql(400); pm.expect(body.errors).to.have.property('title'); });
+    language: text/javascript
+order: 7000

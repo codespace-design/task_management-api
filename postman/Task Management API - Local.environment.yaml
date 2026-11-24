@@ -1,0 +1,18 @@
+name: Task Management API - Local
+values:
+  - key: baseUrl
+    value: 'http://127.0.0.1:8000'
+  - key: password
+    value: A-strong-test-password-2026
+  - key: employerEmail
+    value: ''
+  - key: candidateEmail
+    value: ''
+  - key: employerAccessToken
+    value: ''
+  - key: employerRefreshToken
+    value: ''
+  - key: candidateAccessToken
+    value: ''
+  - key: taskId
+    value: ''

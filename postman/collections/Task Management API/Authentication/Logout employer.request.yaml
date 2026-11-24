@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{baseUrl}}/api/auth/logout"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "refresh": "{{employerRefreshToken}}"
+    }
+scripts:
+  - type: afterResponse
+    code: pm.test('Logout succeeds (205)', function () { pm.response.to.have.status(205); });
+    language: text/javascript
+order: 6000

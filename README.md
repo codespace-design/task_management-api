@@ -3,6 +3,12 @@
 This project provides a lightweight Django REST Framework API for managing tasks.
 It also includes a browser-based dashboard at `/` for managing tasks through the API.
 
+## Additional documentation
+
+- [Day 15 authentication review and API guide](docs/DAY-15-DELIVERABLES.md)
+- [Day 14 deliverables](docs/DAY-14-DELIVERABLES.md)
+- [Bug report summary](docs/BUG-REPORT.md)
+
 ## Local setup
 
 1. Create a virtual environment and activate it.
@@ -44,12 +50,12 @@ It also includes a browser-based dashboard at `/` for managing tasks through the
 - `GET /api/profiles/candidate/resume/` — download your resume
 - `DELETE /api/profiles/candidate/resume/` — remove your resume without deleting your profile
 - `/api/profiles/candidate/<user_id>/resume/` — admin access to a candidate's resume
-- `GET /api/tasks/` — list tasks (any authenticated role)
+- `GET /api/tasks/` — search, filter, and paginate tasks (any authenticated role)
 - `POST /api/tasks/` — create a task (employer or admin)
 - `GET /api/tasks/<id>/` — retrieve one task (any authenticated role)
-- `PUT /api/tasks/<id>/` — replace a task (employer or admin)
-- `PATCH /api/tasks/<id>/` — partially update a task (employer or admin)
-- `DELETE /api/tasks/<id>/` — delete a task (employer or admin)
+- `PUT /api/tasks/<id>/` — replace a task (creator employer or admin)
+- `PATCH /api/tasks/<id>/` — partially update a task (creator employer or admin)
+- `DELETE /api/tasks/<id>/` — delete a task (creator employer or admin)
 
 Registration requires an email, password, and role (`employer` or `candidate`);
 phone is optional and unique when provided. Passwords are validated with Django's
@@ -58,7 +64,8 @@ accounts must be created by staff using `python manage.py createsuperuser` or th
 Django admin; public registration cannot assign the admin role.
 
 All task API endpoints require a JWT access token. Candidates can read tasks;
-employers and admins can read and modify them. Registration, login, and
+employers can create and modify their own tasks, and admins can modify any
+task. All authenticated roles can read tasks. Registration, login, and
 token refresh are public endpoints; logout requires authentication. Send the
 access token as `Authorization: Bearer <access-token>`. Access tokens expire
 after five minutes; refresh tokens expire after one day, rotate on use, and are
@@ -67,6 +74,44 @@ use HTTPS outside local development. A logged-out access token remains usable
 until its short expiry; logout prevents further refreshes.
 Schedule `python manage.py flushexpiredtokens` regularly to remove expired
 blacklist records.
+
+The task list uses page-number pagination and returns `count`, `next`,
+`previous`, and `results`. Use `page` to select a page; page size defaults to
+`API_PAGE_SIZE` (20) and can be overridden with `page_size`, capped by
+`API_MAX_PAGE_SIZE` (100). Both settings can be configured through environment
+variables.
+
+`GET /api/tasks/` supports `search` (case-insensitive keyword matching in title
+and description), `role` (`admin`, `employer`, or `candidate` based on the
+creator's role), `status` (`pending` or `completed`), and inclusive
+`created_after` / `created_before` dates in `YYYY-MM-DD` format. Invalid filter
+values return `400`. New tasks record their creator and include
+`created_by_role` in responses; existing tasks without a recorded creator
+return `null`. Tasks remain readable to all authenticated users.
+
+Task lists have stable newest-first ordering. Date/status filters and creator
+role lookups use database indexes, and the creator relation is loaded with
+`select_related` to avoid per-task queries. Keyword search currently uses
+substring matching; for very large datasets, use a database-specific
+full-text-search index or a dedicated search service.
+
+API errors use a consistent JSON envelope:
+
+```json
+{
+  "success": false,
+  "status_code": 400,
+  "message": "Validation failed.",
+  "errors": {"title": ["This field is required."]}
+}
+```
+
+The same envelope is used for authentication, permission, not-found, and
+unexpected API server errors. Successful response bodies remain endpoint-
+specific; creates return `201`, normal reads and updates return `200`, and
+deletes return `204`. Import the Postman collection and environment from
+`postman/` to run the API and authorization checks. See
+`docs/BUG-REPORT.md` for the verification summary.
 
 For example, log in with `{"email":"person@example.com","password":"..."}` at
 `/api/auth/token/`, then send the returned access token as a Bearer token when
@@ -104,9 +149,9 @@ applied as Django REST Framework permissions so they run after JWT
 authentication. The task API has no job-posting or application models/endpoints;
 those domain features are not represented by this task-management API.
 
-The sample task model does not assign tasks to individual users, so task records
-are shared among authenticated accounts. Add task ownership and queryset
-scoping before using this API as a multi-tenant production service.
+Tasks are readable by all authenticated users. Employers can update or delete
+only tasks they created; administrators can manage any task. Legacy tasks with
+no recorded creator can be modified only by administrators.
 
 This project uses a custom email-based user model (`AUTH_USER_MODEL` is
 `accounts.User`). Configure it before the first database migration in a new

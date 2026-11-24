@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{baseUrl}}/api/auth/token/refresh"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "refresh": "{{employerRefreshToken}}"
+    }
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('Refresh succeeds (200)', function () { pm.response.to.have.status(200); });
+      const previousRefresh = pm.environment.get('employerRefreshToken');
+      const tokens = pm.response.json();
+      pm.environment.set('employerAccessToken', tokens.access);
+      pm.environment.set('employerRefreshToken', tokens.refresh);
+      pm.test('Refresh token rotates', function () { pm.expect(tokens.refresh).to.not.equal(previousRefresh); });
+    language: text/javascript
+order: 5000

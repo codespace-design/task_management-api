@@ -1,12 +1,13 @@
 import io
 import tempfile
 import zipfile
+from datetime import timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
-from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from .models import CandidateProfile, EmployerProfile, User
 
@@ -119,7 +120,7 @@ class RegistrationAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("role", response.data)
+        self.assertIn("role", response.data["errors"])
 
     def test_registration_rejects_case_insensitive_duplicate_email(self):
         User.objects.create_user(
@@ -139,7 +140,7 @@ class RegistrationAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("email", response.data)
+        self.assertIn("email", response.data["errors"])
 
     def test_registration_rejects_duplicate_phone(self):
         User.objects.create_user(
@@ -161,7 +162,7 @@ class RegistrationAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("phone", response.data)
+        self.assertIn("phone", response.data["errors"])
 
     def test_weak_password_is_rejected(self):
         response = self.client.post(
@@ -175,7 +176,7 @@ class RegistrationAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("password", response.data)
+        self.assertIn("password", response.data["errors"])
 
 
 class JWTAuthenticationTests(APITestCase):
@@ -280,6 +281,21 @@ class JWTAuthenticationTests(APITestCase):
         )
         self.assertEqual(still_valid.status_code, status.HTTP_200_OK)
 
+    def test_logout_rejects_an_expired_refresh_token(self):
+        tokens = self.obtain_tokens()
+        expired_refresh = RefreshToken.for_user(self.user)
+        expired_refresh.set_exp(lifetime=timedelta(seconds=-1))
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        response = self.client.post(
+            self.logout_url,
+            {"refresh": str(expired_refresh)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("refresh", response.data["errors"])
+
 
 class ProfileAPITests(APITestCase):
     password = "A-strong-test-password-2026"
@@ -380,9 +396,9 @@ class ProfileAPITests(APITestCase):
         )
 
         self.assertEqual(invalid_skills.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("skills", invalid_skills.data)
+        self.assertIn("skills", invalid_skills.data["errors"])
         self.assertEqual(invalid_salary.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("expected_salary", invalid_salary.data)
+        self.assertIn("expected_salary", invalid_salary.data["errors"])
 
     def test_employer_profile_fields_and_verification_protection(self):
         self.client.force_authenticate(self.employer)
@@ -547,7 +563,7 @@ class ResumeUploadAPITests(APITestCase):
         response = self.upload(content=b"%PDF-" + b"x" * (5 * 1024 * 1024))
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("resume", response.data)
+        self.assertIn("resume", response.data["errors"])
 
     def test_other_candidate_cannot_download_or_replace_resume(self):
         self.client.force_authenticate(self.other_candidate)

@@ -17,10 +17,11 @@ from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config(
-    "SECRET_KEY",
-    default="change-me-in-production-use-a-secure-key",
-)
+SECRET_KEY = config("SECRET_KEY")
+if len(SECRET_KEY) < 32 or SECRET_KEY.lower().startswith(("change-me", "replace-with")):
+    raise ValueError(
+        "SECRET_KEY must be at least 32 characters and must not be a placeholder."
+    )
 DEBUG = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = config(
     "ALLOWED_HOSTS",
@@ -45,6 +46,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "config.middleware.ApiServerErrorMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -105,8 +107,16 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
+API_PAGE_SIZE = config("API_PAGE_SIZE", default=20, cast=int)
+API_MAX_PAGE_SIZE = config("API_MAX_PAGE_SIZE", default=100, cast=int)
+
+if API_PAGE_SIZE < 1:
+    raise ValueError("API_PAGE_SIZE must be a positive integer.")
+if API_MAX_PAGE_SIZE < API_PAGE_SIZE:
+    raise ValueError("API_MAX_PAGE_SIZE must be at least API_PAGE_SIZE.")
 
 REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
