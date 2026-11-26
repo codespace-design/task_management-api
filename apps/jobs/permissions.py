@@ -13,12 +13,19 @@ class IsEmployerOwnerOrReadOnly(IsAuthenticated):
             "partial_update",
             "activate",
             "deactivate",
+            "close",
         }:
             return request.user.role == User.Role.EMPLOYER
         return True
 
     def has_object_permission(self, request, view, obj):
-        if view.action in {"update", "partial_update", "activate", "deactivate"}:
+        if view.action in {
+            "update",
+            "partial_update",
+            "activate",
+            "deactivate",
+            "close",
+        }:
             return bool(
                 request.user.role == User.Role.EMPLOYER
                 and obj.employer_id == request.user.pk

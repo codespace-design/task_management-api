@@ -1,18 +1,28 @@
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Exists, OuterRef, Q
+from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from apps.accounts.models import User
+from apps.accounts.models import CandidateProfile, User
+from apps.accounts.permissions import IsCandidate, IsEmployer, IsEmployerOrAdmin
 
-from .models import Job, JobSkill
+from .models import Job, JobApplication, JobSkill
 from .pagination import JobPagination
 from .permissions import IsEmployerOwnerOrReadOnly
-from .serializers import JobSerializer
+from .serializers import JobApplicationSerializer, JobSerializer
+from .services import (
+    DuplicateApplication,
+    ResumeUnavailable,
+    application_status_summary,
+    create_job_application,
+    filter_applications,
+)
 
 
 class JobViewSet(viewsets.ModelViewSet):
@@ -21,6 +31,10 @@ class JobViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
 
     def get_permissions(self):
+        if self.action == "apply":
+            return [IsCandidate()]
+        if self.action in {"applicants", "analytics"}:
+            return [IsEmployerOrAdmin()]
         if self.action in {"list", "retrieve", "featured", "latest"}:
             return [AllowAny()]
         return [IsEmployerOwnerOrReadOnly()]
@@ -32,6 +46,8 @@ class JobViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if self.action in {"featured", "latest"} or not user.is_authenticated:
             return queryset.filter(status=Job.Status.ACTIVE)
+        if self.action == "apply":
+            return queryset
         if user.role == User.Role.EMPLOYER:
             return queryset.filter(employer=user)
         if user.role == User.Role.CANDIDATE:
@@ -128,6 +144,55 @@ class JobViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(employer=self.request.user)
 
+    @action(detail=True, methods=["post"])
+    def apply(self, request, pk=None):
+        job = self.get_object()
+        if job.status != Job.Status.ACTIVE:
+            raise ValidationError(
+                {"job": "Applications are only accepted for active jobs."}
+            )
+
+        profile = CandidateProfile.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+        if (
+            profile is None
+            or not profile.resume
+            or not profile.resume.storage.exists(profile.resume.name)
+        ):
+            raise ValidationError(
+                {
+                    "resume": (
+                        "Upload a resume to your active candidate profile before "
+                        "applying."
+                    )
+                }
+            )
+
+        try:
+            application = create_job_application(
+                candidate=request.user,
+                job=job,
+                resume=profile.resume,
+            )
+        except DuplicateApplication as error:
+            raise ValidationError(
+                {"job": "You have already applied for this job."}
+            ) from error
+        except ResumeUnavailable as error:
+            raise ValidationError(
+                {"resume": "The profile resume could not be read; upload it again."}
+            ) from error
+
+        return Response(
+            JobApplicationSerializer(
+                application,
+                context=self.get_serializer_context(),
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=False, methods=["get"])
     def featured(self, request):
         queryset = self.filter_queryset(self.get_queryset().filter(is_featured=True))
@@ -151,6 +216,41 @@ class JobViewSet(viewsets.ModelViewSet):
         job.status = Job.Status.INACTIVE
         job.save(update_fields=("status", "updated_at"))
         return Response(self.get_serializer(job).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        job = self.get_object()
+        job.status = Job.Status.INACTIVE
+        job.save(update_fields=("status", "updated_at"))
+        return Response(self.get_serializer(job).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"])
+    def applicants(self, request, pk=None):
+        job = get_object_or_404(self.get_queryset(), pk=pk)
+        self.check_object_permissions(request, job)
+        queryset = JobApplication.objects.filter(job=job).select_related(
+            "candidate",
+            "job",
+            "job__employer",
+        ).prefetch_related("job__skill_entries", "status_history")
+        queryset = filter_applications(queryset, request.query_params)
+        page = self.paginate_queryset(queryset)
+        serializer = JobApplicationSerializer(
+            page if page is not None else queryset,
+            many=True,
+            context=self.get_serializer_context(),
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["get"])
+    def analytics(self, request, pk=None):
+        job = self.get_object()
+        summary = application_status_summary(
+            JobApplication.objects.filter(job=job)
+        )
+        return Response({"job_id": job.pk, "applications": summary})
 
     def _paginated_response(self, queryset):
         page = self.paginate_queryset(queryset)
@@ -184,3 +284,28 @@ class JobViewSet(viewsets.ModelViewSet):
                 {parameter: "Must be a finite number zero or greater."}
             )
         return parsed
+
+
+class EmployerDashboardView(APIView):
+    permission_classes = [IsEmployer]
+
+    def get(self, request):
+        jobs = Job.objects.filter(employer=request.user).order_by("-created_at", "-id")
+        job_counts = {
+            "total": jobs.count(),
+            "active": jobs.filter(status=Job.Status.ACTIVE).count(),
+            "draft": jobs.filter(status=Job.Status.DRAFT).count(),
+            "inactive": jobs.filter(status=Job.Status.INACTIVE).count(),
+        }
+        applications = JobApplication.objects.filter(job__employer=request.user)
+        return Response(
+            {
+                "job_counts": job_counts,
+                "applications": application_status_summary(applications),
+                "jobs": JobSerializer(
+                    jobs,
+                    many=True,
+                    context={"request": request},
+                ).data,
+            }
+        )

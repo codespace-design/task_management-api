@@ -1,7 +1,8 @@
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.reverse import reverse
 
-from .models import Job, JobSkill
+from .models import Job, JobApplication, JobApplicationStatusHistory, JobSkill
 
 
 class SkillNamesField(serializers.Field):
@@ -161,3 +162,72 @@ class JobSerializer(serializers.ModelSerializer):
                 for name in skill_names
             ]
         )
+
+
+class JobApplicationStatusHistorySerializer(serializers.ModelSerializer):
+    changed_by_id = serializers.IntegerField(read_only=True)
+    changed_by_email = serializers.EmailField(
+        source="changed_by.email",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = JobApplicationStatusHistory
+        fields = (
+            "from_status",
+            "to_status",
+            "action",
+            "changed_by_id",
+            "changed_by_email",
+            "note",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class JobApplicationSerializer(serializers.ModelSerializer):
+    job = JobSerializer(read_only=True)
+    candidate_id = serializers.IntegerField(read_only=True)
+    candidate_email = serializers.EmailField(source="candidate.email", read_only=True)
+    resume_url = serializers.SerializerMethodField()
+    status_history = JobApplicationStatusHistorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = JobApplication
+        fields = (
+            "id",
+            "job",
+            "candidate_id",
+            "candidate_email",
+            "resume_url",
+            "status",
+            "status_history",
+            "applied_at",
+        )
+        read_only_fields = (
+            "id",
+            "job",
+            "candidate_id",
+            "candidate_email",
+            "resume_url",
+            "status_history",
+            "applied_at",
+        )
+
+    def get_resume_url(self, application):
+        request = self.context.get("request")
+        path = reverse(
+            "application-resume",
+            kwargs={"pk": application.pk},
+            request=request,
+        )
+        return path
+
+
+class JobApplicationStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=JobApplication.Status.choices,
+        required=False,
+    )
+    note = serializers.CharField(required=False, allow_blank=True, max_length=500)
